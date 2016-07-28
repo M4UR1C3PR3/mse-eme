@@ -25,7 +25,7 @@
  */
 
 
-package org.cablelabs.access.cryptfile;
+package org.cablelabs.primetime.cryptfile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -38,7 +38,7 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
-public class AccessPSSH extends DRMInfoPSSH {
+public class PrimetimePSSH extends DRMInfoPSSH {
     
     private static final byte[] ACCESS_SYSTEM_ID = {
         (byte)0xf2, (byte)0x39, (byte)0xe7, (byte)0x69,
@@ -49,7 +49,7 @@ public class AccessPSSH extends DRMInfoPSSH {
     
     private byte[] accessMetadataBoxData;
     
-    public AccessPSSH(List<byte[]> keyIDs) throws IOException {
+    public PrimetimePSSH(List<byte[]> keyIDs) throws IOException {
         super(ACCESS_SYSTEM_ID);
         
         // Write AccessMetadata box data first

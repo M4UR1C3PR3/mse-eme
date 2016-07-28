@@ -34,7 +34,7 @@ import java.util.List;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.binary.Hex;
-import org.cablelabs.access.cryptfile.AccessPSSH;
+import org.cablelabs.primetime.cryptfile.PrimetimePSSH;
 import org.cablelabs.clearkey.cryptfile.ClearKeyPSSH;
 import org.cablelabs.cmdline.CmdLine;
 import org.cablelabs.cryptfile.CryptKey;
@@ -111,8 +111,8 @@ public class CryptfileGen {
             System.out.println("\t-pr");
             System.out.println("\t\tAdd PlayReady PSSH to the cryptfile.");
             System.out.println("");
-            System.out.println("\t-ax");
-            System.out.println("\t\tAdd Access PSSH to the cryptfile.");
+            System.out.println("\t-pt");
+            System.out.println("\t\tAdd Primetime PSSH to the cryptfile.");
             System.out.println("");
             System.out.println("\t-prdt");
             System.out.println("\t\tAdd PlayReady PSSH (provided by DRMToday) to the cryptfile.");
@@ -155,7 +155,7 @@ public class CryptfileGen {
         boolean widevine = false;
         boolean playready = false;
         boolean playreadyDT = false;
-        boolean access = false;
+        boolean primetime = false;
         
         // Print content protection element?
         boolean printCP = false;
@@ -188,8 +188,8 @@ public class CryptfileGen {
                 else if ((subopts = cmdline.checkOption("-pr", args, i, 0)) != null) {
                     playready = true;
                 }
-                else if ((subopts = cmdline.checkOption("-ax", args, i, 0)) != null) {
-                    access = true;
+                else if ((subopts = cmdline.checkOption("-pt", args, i, 0)) != null) {
+                    primetime = true;
                 }
                 else if ((subopts = cmdline.checkOption("-prdt", args, i, 0)) != null) {
                     playreadyDT = true;
@@ -316,10 +316,10 @@ public class CryptfileGen {
                     headers.add(new WRMHeader(WRMHeader.Version.V_4000, keyPair, PlayReadyPSSH.TEST_URL));
                     psshList.add(new PlayReadyPSSH(headers, PlayReadyPSSH.ContentProtectionType.CENC));
                 }
-                if (access) {
+                if (primetime) {
                     List<byte[]> keyIDs = new ArrayList<byte[]>();
                     keyIDs.add(t.keypair.getID());
-                    psshList.add(new AccessPSSH(keyIDs));
+                    psshList.add(new PrimetimePSSH(keyIDs));
                 }
             }
             catch (Exception e) {
