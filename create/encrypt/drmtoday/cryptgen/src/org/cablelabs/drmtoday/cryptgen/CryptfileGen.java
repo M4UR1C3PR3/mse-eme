@@ -76,8 +76,9 @@ public class CryptfileGen {
         public void usage() {
             System.out.println("DRMToday MP4Box cryptfile generation tool.");
             System.out.println("");
-            System.out.println("usage:  CryptfileGen [OPTIONS] <drmtoday_props_file> <assetId> <track_id>:<track_type>[:{@<keyid_file>|<key_id>=<key>[,<key_id>=<key>...]}]");
-            System.out.println("\t\t\t [<track_id>:<track_type>[:{@<keyid_file>|<key_id>=<key>[,<key_id>=<key>...]}]]...");
+            System.out.println("usage:  CryptfileGen [OPTIONS] <drmtoday_props_file> <assetId>");
+            System.out.println("\t\t <track_id>:<track_type>[:{@<keyid_file>|<key_id>=<key>[,<key_id>=<key>...]}]");
+            System.out.println("\t\t [<track_id>:<track_type>[:{@<keyid_file>|<key_id>=<key>[,<key_id>=<key>...]}]]...");
             System.out.println("");
             System.out.println("\t<drmtoday_props_file>");
             System.out.println("\t\tDRMToday properties file that contains merchant login info.  <drmtoday_props_file>");
@@ -265,8 +266,6 @@ public class CryptfileGen {
                 continue;
             }
             
-            List<KeyPair> keysList = new ArrayList<KeyPair>();
-            
             // Parse tracks
             String track_desc[] = args[i].split(":");
             if (track_desc.length < 2) {
@@ -284,8 +283,8 @@ public class CryptfileGen {
 
                 t.id = Integer.parseInt(track_desc[0]);
 
+                t.keypairs = new ArrayList<KeyPair>();
                 if (track_desc.length == 3) { // Keys specified
-                    t.keypairs = new ArrayList<KeyPair>();
                     // Read key IDs from file
                     if (track_desc[1].startsWith("@")) {
                         String keyfile = track_desc[1].substring(1);
@@ -371,6 +370,8 @@ public class CryptfileGen {
         }
         CencKeyAPI2 cencKeyAPI = new CencKeyAPI2(drmtodayAuth, props.getFeHost(), props.getMerchant());
         for (Track t : trackList) {
+            if (t == null)
+                continue;
 
             List<CryptKey> keyList = new ArrayList<CryptKey>();
             int rotationId = (t.keypairs.size() == 1) ? -1 : 1;

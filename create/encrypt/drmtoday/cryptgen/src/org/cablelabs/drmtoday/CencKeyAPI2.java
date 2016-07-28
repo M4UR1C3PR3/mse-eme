@@ -41,7 +41,7 @@ import com.google.gson.GsonBuilder;
 
 public class CencKeyAPI2 {
     
-    private static final String FE_API_CENC_KEY_INGEST = "/frontend/api/keys/v2/ingest/merchant/%s/";
+    private static final String FE_API_CENC_KEY_INGEST = "/frontend/api/keys/v2/ingest/%s";
 
     private AuthAPI auth;
     private String feHost;

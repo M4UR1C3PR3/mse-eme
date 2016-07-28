@@ -34,7 +34,7 @@ public class CencKeysV2 {
     
     public class IngestKey {
         public String streamType;              // One of "UHD", "HD", "SD", "AUDIO", "VIDEO", "VIDEO_AUDIO"
-        public int keyRotationId;              // Optional
+        public Integer keyRotationId;          // Optional
         public String keyId;                   // Base64-encoded key ID (16 bytes)
         public String key;                     // Base64-encoded key (16 bytes)
         public String algorithm = "AES";
