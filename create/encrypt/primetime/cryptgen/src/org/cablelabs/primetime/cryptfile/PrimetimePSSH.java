@@ -40,17 +40,28 @@ import org.w3c.dom.Node;
 
 public class PrimetimePSSH extends DRMInfoPSSH {
     
-    private static final byte[] ACCESS_SYSTEM_ID = {
+    private static final byte[] PRIMETIME_SYSTEM_ID = {
         (byte)0xf2, (byte)0x39, (byte)0xe7, (byte)0x69,
         (byte)0xef, (byte)0xa3, (byte)0x48, (byte)0x50,
         (byte)0x9c, (byte)0x16, (byte)0xa9, (byte)0x03,
         (byte)0xc6, (byte)0x93, (byte)0x2e, (byte)0xfb
     };
+
+    /**
+     * Returns whether or not the given systemID is Primetime
+     * 
+     * @param systemID the systemID to check
+     * @return true if the systemID is Primetime, false otherwise
+     */
+    public static boolean isPrimetime(byte[] systemID) {
+        return systemIDMatch(PRIMETIME_SYSTEM_ID, systemID);
+    }
+    
     
     private byte[] accessMetadataBoxData;
     
     public PrimetimePSSH(List<byte[]> keyIDs) throws IOException {
-        super(ACCESS_SYSTEM_ID);
+        super(PRIMETIME_SYSTEM_ID);
         
         // Write AccessMetadata box data first
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
