@@ -182,7 +182,7 @@ public class CryptTrack implements MP4BoxXML {
             e.setAttribute(ATTR_FIRST_IV, "0x" + Hex.encodeHexString(iv));
             e.setAttribute(ATTR_SAI_BOX, "senc");
             if (keyRoll != -1)
-                e.setAttribute(ATTR_KEY_ROLL, Integer.toString(keyRoll));
+                e.setAttribute(ATTR_KEY_ROLL, "roll=" + Integer.toString(keyRoll));
         }
         
         for (CryptKey key : keys) {

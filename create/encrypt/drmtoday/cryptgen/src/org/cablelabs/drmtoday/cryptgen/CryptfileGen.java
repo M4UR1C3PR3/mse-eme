@@ -26,8 +26,10 @@
 
 package org.cablelabs.drmtoday.cryptgen;
 
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,16 +45,18 @@ import org.cablelabs.cryptfile.CryptfileBuilder;
 import org.cablelabs.cryptfile.DRMInfoPSSH;
 import org.cablelabs.cryptfile.KeyPair;
 import org.cablelabs.drmtoday.AuthAPI;
-import org.cablelabs.drmtoday.CencKey;
-import org.cablelabs.drmtoday.CencKeyAPI;
+import org.cablelabs.drmtoday.CencKeyAPI2;
+import org.cablelabs.drmtoday.CencKeysV2;
 import org.cablelabs.drmtoday.PropsFile;
 import org.cablelabs.drmtoday.PsshData;
 import org.cablelabs.drmtoday.cryptfile.DRMTodayPSSH;
-import org.cablelabs.playready.PlayReadyKeyPair;
-import org.cablelabs.playready.WRMHeader;
 import org.cablelabs.playready.cryptfile.PlayReadyPSSH;
 import org.cablelabs.widevine.cryptfile.WidevinePSSH;
 import org.w3c.dom.Document;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 /**
  * This utility will build a MP4Box cryptfile for a given piece of content using DRMToday.  The steps
@@ -72,7 +76,9 @@ public class CryptfileGen {
         public void usage() {
             System.out.println("DRMToday MP4Box cryptfile generation tool.");
             System.out.println("");
-            System.out.println("usage:  CryptfileGen [OPTIONS] <drmtoday_props_file> <assetId> <track_id>:<track_type> [<track_id>:<track_type>]...");
+            System.out.println("usage:  CryptfileGen [OPTIONS] <drmtoday_props_file> <assetId>");
+            System.out.println("\t\t <track_id>:<track_type>[:{@<keyid_file>|<key_id>=<key>[,<key_id>=<key>...]}]");
+            System.out.println("\t\t [<track_id>:<track_type>[:{@<keyid_file>|<key_id>=<key>[,<key_id>=<key>...]}]]...");
             System.out.println("");
             System.out.println("\t<drmtoday_props_file>");
             System.out.println("\t\tDRMToday properties file that contains merchant login info.  <drmtoday_props_file>");
@@ -102,6 +108,12 @@ public class CryptfileGen {
             System.out.println("\t-variantId");
             System.out.println("\t\tOptional DRMToday asset variantId.");
             System.out.println("");
+            System.out.println("\t-roll <num_keys>,<num_samples>");
+            System.out.println("\t\tUse rolling keys.  <num_keys> unique encryption keys will be used to encrypt the samples.");
+            System.out.println("\t\t<num_samples> samples will be encrypted with each key before moving to the next key in the");
+            System.out.println("\t\tlist of keys.  If the key/keyID pairs were specified on the command line, they must match");
+            System.out.println("\t\t<num_keys> or an error will be reported.");
+            System.out.println("");
             System.out.println("\t-ck");
             System.out.println("\t\tAdd ClearKey PSSH to the cryptfile.");
             System.out.println("");
@@ -114,34 +126,66 @@ public class CryptfileGen {
             System.out.println("\t-pt");
             System.out.println("\t\tAdd Primetime PSSH to the cryptfile.");
             System.out.println("");
-            System.out.println("\t-prdt");
-            System.out.println("\t\tAdd PlayReady PSSH (provided by DRMToday) to the cryptfile.");
-            System.out.println("");
             System.out.println("\t-cp");
             System.out.println("\t\tPrint a DASH <ContentProtection> element (for each DRM) that can be pasted into the MPD");
         }
     }
     
     private enum StreamType {
-        VIDEO,
+        UHD,
+        HD,
+        SD,
         AUDIO,
+        VIDEO,
         VIDEO_AUDIO,
         NUM_TYPES
     }
     
     private static class Track {
         int id;
-        KeyPair keypair;
+        List<KeyPair> keypairs;
         StreamType streamType;
+    }
+    
+    // Returns null if new track type would be valid, otherwise, if it would conflict with existing
+    // track types, returns the conflicting type
+    private static String validateTrackStreamType(Track[] trackList, StreamType newTrack) {
+        List<StreamType> conflictingTypes = new ArrayList<StreamType>();
+        switch (newTrack) {
+            case UHD:
+            case HD:
+            case SD:
+                conflictingTypes.add(StreamType.VIDEO);
+                conflictingTypes.add(StreamType.VIDEO_AUDIO);
+                break;
+            case AUDIO:
+                conflictingTypes.add(StreamType.VIDEO_AUDIO);
+                break;
+            case VIDEO:
+                conflictingTypes.add(StreamType.UHD);
+                conflictingTypes.add(StreamType.HD);
+                conflictingTypes.add(StreamType.SD);
+                conflictingTypes.add(StreamType.VIDEO_AUDIO);
+                break;
+            case VIDEO_AUDIO:
+                conflictingTypes.add(StreamType.UHD);
+                conflictingTypes.add(StreamType.HD);
+                conflictingTypes.add(StreamType.SD);
+                conflictingTypes.add(StreamType.AUDIO);
+                conflictingTypes.add(StreamType.VIDEO);
+                break;
+        }
+        for (StreamType st : conflictingTypes) {
+            if (trackList[st.ordinal()] != null)
+                return st.toString();
+        }
+        return null;
     }
     
     public static void main(String[] args) {
         
         CmdLine cmdline = new CmdLine(new Usage());
 
-        // Tracks
-        Track[] track_args = new Track[StreamType.NUM_TYPES.ordinal()];
-        
         // DRMToday login properties file
         String dtPropsFile = null;
         
@@ -150,16 +194,20 @@ public class CryptfileGen {
         
         String outfile = null;
         
+        int numRollingKeys = 0;
+        int rollingKeySamples = 0;
+        
         // DRMs
         boolean clearkey = false;
         boolean widevine = false;
         boolean playready = false;
-        boolean playreadyDT = false;
         boolean primetime = false;
         
         // Print content protection element?
         boolean printCP = false;
         
+        Track[] trackList = new Track[StreamType.NUM_TYPES.ordinal()];
+
         // Parse arguments
         for (int i = 0; i < args.length; i++) {
             
@@ -191,11 +239,13 @@ public class CryptfileGen {
                 else if ((subopts = cmdline.checkOption("-pt", args, i, 0)) != null) {
                     primetime = true;
                 }
-                else if ((subopts = cmdline.checkOption("-prdt", args, i, 0)) != null) {
-                    playreadyDT = true;
-                }
                 else if ((subopts = cmdline.checkOption("-cp", args, i, 0)) != null) {
                     printCP = true;
+                }
+                else if ((subopts = cmdline.checkOption("-roll", args, i, 2)) != null) {
+                    numRollingKeys = Integer.parseInt(subopts[0]);
+                    rollingKeySamples = Integer.parseInt(subopts[1]);
+                    i++;
                 }
                 else {
                     cmdline.errorExit("Illegal argument: " + args[i]);
@@ -218,19 +268,61 @@ public class CryptfileGen {
             
             // Parse tracks
             String track_desc[] = args[i].split(":");
-            if (track_desc.length != 2) {
+            if (track_desc.length < 2) {
                 cmdline.errorExit("Illegal track specification: " + args[i]);
             }
             try {
                 Track t = new Track();
                 StreamType streamType = StreamType.valueOf(track_desc[1]);
                 t.streamType = streamType;
+                
+                String conflict = validateTrackStreamType(trackList, t.streamType);
+                if (conflict != null) {
+                    cmdline.errorExit("New track stream type (" + t.streamType.toString() + ") conflicts with previous track (" + conflict + ")");
+                }
+
                 t.id = Integer.parseInt(track_desc[0]);
-                t.keypair = KeyPair.random(); // Create a random key pair
-                track_args[t.streamType.ordinal()] = t;
+
+                t.keypairs = new ArrayList<KeyPair>();
+                if (track_desc.length == 3) { // Keys specified
+                    // Read key IDs from file
+                    if (track_desc[1].startsWith("@")) {
+                        String keyfile = track_desc[1].substring(1);
+                        BufferedReader br = null;
+                        try {
+                            br = new BufferedReader(new FileReader(keyfile));
+                            String line;
+                            while ((line = br.readLine()) != null) {
+                                String[] key = line.split("=");
+                                if (key.length != 2)
+                                    throw new IllegalArgumentException("Invalid key specification in key file: " + line);
+                                t.keypairs.add(new KeyPair(key[0],key[1]));
+                            }
+                        } catch (Exception e) {
+                            throw new IllegalArgumentException("Error parsing key file! (" + e.getMessage() + ")");
+                        } finally {
+                            if (br != null)
+                                try { br.close(); } catch (IOException e) { }
+                        }
+                    }
+                    else { // Key IDs on command line
+                        String[] keys = track_desc[1].split(",");
+                        for (String keypair : keys) {
+                            String[] key = keypair.split("=");
+                            if (key.length != 2) 
+                                throw new IllegalArgumentException("Invalid cmdline key specification: " + keypair);
+                            t.keypairs.add(new KeyPair(key[0],key[1]));
+                        }
+                    }
+                } else { // Generate random keys
+                    int numKeysToGenerate = (rollingKeySamples == 0) ? 1 : numRollingKeys;
+                    for (int k = 0; k < numKeysToGenerate; k++) 
+                        t.keypairs.add(KeyPair.random()); // Create a random key pair
+                }
+                trackList[t.streamType.ordinal()] = t;
             }
             catch (IllegalArgumentException e) {
-                cmdline.errorExit("Illegal track_type -- " + track_desc[1]);
+                cmdline.errorExit("Illegal track_type -- " + track_desc[1] + ". " + e.getMessage());
             }
         }
         
@@ -240,26 +332,6 @@ public class CryptfileGen {
         
         if (assetId == null) {
             cmdline.errorExit("Must specify assetId!");
-        }
-        
-        if (playready && playreadyDT) {
-            cmdline.errorExit("Can not specify both -pr and -prdt!");
-        }
-        
-        // Validate track stream types.  Can have AUDIO and/or VIDEO or VIDEO_AUDIO
-        if (track_args[StreamType.VIDEO_AUDIO.ordinal()] != null &&
-            (track_args[StreamType.VIDEO.ordinal()] != null || track_args[StreamType.AUDIO.ordinal()] != null)) {
-            cmdline.errorExit("Illegal track specification!  Can have (AUDIO and/or VIDEO) or (VIDEO_AUDIO) only!");
-        }
-        
-        // Request keys
-        List<Track> trackList = new ArrayList<Track>();
-        for (Track t : track_args) {
-            if (t != null)
-                trackList.add(t);
-        }
-        if (trackList.isEmpty()) {
-            cmdline.errorExit("Must specify at least one track!");
         }
         
         // Load properties file
@@ -287,49 +359,87 @@ public class CryptfileGen {
         List<DRMInfoPSSH> psshList = new ArrayList<DRMInfoPSSH>();
         List<CryptTrack> cryptTracks = new ArrayList<CryptTrack>();
         
-        // Ingest key for each track
-        CencKey cencKey = new CencKey();
-        cencKey.assetId = assetId;
+        // Ingest key(s) for each track.  We only do one asset at a time for now
+        CencKeysV2 cencKeys = new CencKeysV2();
+        cencKeys.assets = new CencKeysV2.Asset[1];
+        CencKeysV2.Asset asset = cencKeys.new Asset();
+        cencKeys.assets[0] = asset;
+        asset.assetId = assetId;
         if (variantId != null) {
-            cencKey.variantId = variantId;
+            asset.variantId = variantId;
         }
-        CencKeyAPI cencKeyAPI = new CencKeyAPI(drmtodayAuth, props.getFeHost(), props.getMerchant());
+        CencKeyAPI2 cencKeyAPI = new CencKeyAPI2(drmtodayAuth, props.getFeHost(), props.getMerchant());
         for (Track t : trackList) {
-            cencKey.key = Base64.encodeBase64String(t.keypair.getKey());
-            cencKey.keyId = Base64.encodeBase64String(t.keypair.getID());
-            cencKey.streamType = t.streamType.toString();
+            if (t == null)
+                continue;
+
+            List<CryptKey> keyList = new ArrayList<CryptKey>();
+            int rotationId = (t.keypairs.size() == 1) ? -1 : 1;
+            int keyIdx = 0;
+            asset.ingestKeys = new CencKeysV2.IngestKey[t.keypairs.size()];
+            for (KeyPair kp : t.keypairs) {
+                CencKeysV2.IngestKey ingestKey = cencKeys.new IngestKey();
+                ingestKey.streamType = t.streamType.toString();
+                if (rotationId != -1)
+                    ingestKey.keyRotationId = rotationId++;
+                ingestKey.keyId = Base64.encodeBase64String(kp.getID());
+                ingestKey.key = Base64.encodeBase64String(kp.getKey());
+                asset.ingestKeys[keyIdx++] = ingestKey;
+            }
+
             try {
-                String resp = cencKeyAPI.ingestKey(cencKey);
-                List<PsshData> psshdata = PsshData.parseFromDrmTodayJson(resp);
-                for (PsshData d : psshdata) {
-                    // Add DRMToday PSSH boxes if requested
-                    if ((WidevinePSSH.isWidevine(d.getSystemID()) && widevine) || 
-                        (PlayReadyPSSH.isPlayReady(d.getSystemID()) && playreadyDT)) {
-                        psshList.add(new DRMTodayPSSH(d));
+                String resp = cencKeyAPI.ingestKey(cencKeys);
+                
+                // Parse JSON response
+                JsonParser parser = new JsonParser();
+                JsonArray respAssets = parser.parse(resp).getAsJsonObject().get("assets").getAsJsonArray();
+                if (respAssets.size() != 1)
+                    cmdline.errorExit("Expected only one asset in JSON response, but got " + respAssets.size());
+                JsonObject respAsset = respAssets.get(0).getAsJsonObject();
+
+                // Validate fields and check for errors
+                if (!respAsset.get("assetId").getAsString().equals(assetId))
+                    cmdline.errorExit("Response assetId not what was expected: " + respAsset.get("assetId").getAsString());
+                if (variantId != null && !respAsset.get("variantId").getAsString().equals(variantId)) 
+                    cmdline.errorExit("Response variantId not what was expected: " + respAsset.get("variantId").getAsString());
+                if (respAsset.get("errors") != null && respAsset.get("errors").getAsJsonArray().size() != 0) {
+                    JsonArray errors = respAsset.get("errors").getAsJsonArray();
+                    for (int errIdx = 0; errIdx < errors.size(); errIdx++) {
+                        System.out.println("\t " + errors.get(errIdx).getAsString());
                     }
+                    cmdline.errorExit("Errors in license ingest response!");
                 }
-            
-                // Add our PlayReady and Access PSSH box if requested
-                if (playready) {
-                    PlayReadyKeyPair keyPair = new PlayReadyKeyPair(t.keypair);
-                    List<WRMHeader> headers = new ArrayList<WRMHeader>();
-                    headers.add(new WRMHeader(WRMHeader.Version.V_4000, keyPair, PlayReadyPSSH.TEST_URL));
-                    psshList.add(new PlayReadyPSSH(headers, PlayReadyPSSH.ContentProtectionType.CENC));
+                
+                JsonArray respKeys = respAsset.get("keys").getAsJsonArray();
+                for (int respKeyIdx = 0; respKeyIdx < respKeys.size(); respKeyIdx++) {
+                    JsonObject respKey = respKeys.get(respKeyIdx).getAsJsonObject();
+                    byte[] key = Base64.decodeBase64(respKey.get("key").getAsString());
+                    byte[] keyID = Base64.decodeBase64(respKey.get("keyId").getAsString());
+                    boolean alreadyExisted = respKey.get("alreadyExisted").getAsBoolean();
+                    if (alreadyExisted) {
+                        System.out.println("WARNING:  KeyID already exists for this asset! " + KeyPair.toGUID(keyID));
+                    }
+                    
+                    List<PsshData> psshdata = PsshData.parseFromDrmTodayJson(respKey.get("cencResponse").toString());
+                    for (PsshData d : psshdata) {
+                        // Add DRMToday PSSH boxes if requested
+                        if ((WidevinePSSH.isWidevine(d.getSystemID()) && widevine) || 
+                            (PlayReadyPSSH.isPlayReady(d.getSystemID()) && playready) ||
+                            (PrimetimePSSH.isPrimetime(d.getSystemID()) && primetime)) {
+                            psshList.add(new DRMTodayPSSH(d));
+                        }
+                    }
+                
+                    keyList.add(new CryptKey(new KeyPair(keyID, key)));
                 }
-                if (primetime) {
-                    List<byte[]> keyIDs = new ArrayList<byte[]>();
-                    keyIDs.add(t.keypair.getID());
-                    psshList.add(new PrimetimePSSH(keyIDs));
-                }
+
             }
             catch (Exception e) {
                 // TODO Auto-generated catch block
                 System.out.println("Error during Cenc key ingest! -- " + e.getMessage());
             }
             
-            List<CryptKey> keyList = new ArrayList<CryptKey>();
-            keyList.add(new CryptKey(t.keypair));
-            cryptTracks.add(new CryptTrack(t.id, 8, null, keyList, 0));
+            cryptTracks.add(new CryptTrack(t.id, 8, null, keyList, rollingKeySamples));
         }
         
         // Add clearkey PSSH if requested
