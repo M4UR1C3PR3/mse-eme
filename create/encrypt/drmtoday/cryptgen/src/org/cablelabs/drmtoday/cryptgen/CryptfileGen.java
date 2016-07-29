@@ -108,7 +108,7 @@ public class CryptfileGen {
             System.out.println("\t-variantId");
             System.out.println("\t\tOptional DRMToday asset variantId.");
             System.out.println("");
-            System.out.println("\t-roll <num_keys>:<num_samples>");
+            System.out.println("\t-roll <num_keys>,<num_samples>");
             System.out.println("\t\tUse rolling keys.  <num_keys> unique encryption keys will be used to encrypt the samples.");
             System.out.println("\t\t<num_samples> samples will be encrypted with each key before moving to the next key in the");
             System.out.println("\t\tlist of keys.  If the key/keyID pairs were specified on the command line, they must match");
